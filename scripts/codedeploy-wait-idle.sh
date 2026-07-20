@@ -13,7 +13,7 @@ while true; do
     --deployment-group-name "$DG" \
     --include-only-statuses Created Queued InProgress Ready Baking \
     --query 'deployments' \
-    --output text || true)
+    --output text)
 
   if [ -z "$ACTIVE" ] || [ "$ACTIVE" = "None" ]; then
     echo "$LABEL: deployment group is idle."

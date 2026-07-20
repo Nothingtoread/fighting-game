@@ -110,9 +110,7 @@ jobs:
             echo "No version change ($CURRENT) — skipping CodeDeploy traffic shift."
             exit 0
           fi
-          bash scripts/codedeploy-wait-idle.sh \
-            "$CODEDEPLOY_LAMBDA_APP" "$CODEDEPLOY_LAMBDA_DG" "Lambda CodeDeploy"
-          DEPLOY_ID=$(aws deploy create-deployment \
+          DEPLOY_ID=$(bash scripts/codedeploy-create-with-retry.sh \
             --application-name "$CODEDEPLOY_LAMBDA_APP" \
             --deployment-group-name "$CODEDEPLOY_LAMBDA_DG" \
             --revision file:///tmp/revision.json \
@@ -179,9 +177,7 @@ jobs:
       - name: CodeDeploy EC2 fleet rollout
         id: codedeploy_ec2
         run: |
-          bash scripts/codedeploy-wait-idle.sh \
-            "$CODEDEPLOY_EC2_APP" "$CODEDEPLOY_EC2_DG" "EC2 CodeDeploy"
-          DEPLOY_ID=$(aws deploy create-deployment \
+          DEPLOY_ID=$(bash scripts/codedeploy-create-with-retry.sh \
             --application-name "$CODEDEPLOY_EC2_APP" \
             --deployment-group-name "$CODEDEPLOY_EC2_DG" \
             --s3-location "bucket=${{ secrets.ASSETS_BUCKET }},key=deploy/game-server.zip,bundleType=zip" \
