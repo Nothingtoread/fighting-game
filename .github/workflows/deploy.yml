@@ -138,13 +138,22 @@ jobs:
 
       # ── C3: Package game-server (appspec + hooks) for CodeDeploy ────
       - name: Package game server
+        env:
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
         run: |
           cd backend/game-server
+          printf '%s\n' \
+            "COGNITO_REGION=ap-southeast-1" \
+            "COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}" \
+            "MATCHES_TABLE=ActiveMatches" \
+            "PORT=9000" \
+            > fighting-game.env
           npm ci --omit=dev
           zip -qr /tmp/game-server.zip . \
             -x "*.git*" \
             -x "node_modules/*" \
-            -x "install-from-s3.sh"
+            -x "install-from-s3.sh" \
+            -x "fighting-game.env.example"
 
       - name: Upload game-server revision to S3
         run: |
@@ -168,5 +177,20 @@ jobs:
 
       - name: Wait for EC2 CodeDeploy
         run: |
-          aws deploy wait deployment-successful \
-            --deployment-id "${{ steps.codedeploy_ec2.outputs.deployment_id }}"
+          DEPLOY_ID="${{ steps.codedeploy_ec2.outputs.deployment_id }}"
+          if ! aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"; then
+            echo "::error::EC2 CodeDeploy failed — deployment $DEPLOY_ID"
+            aws deploy get-deployment --deployment-id "$DEPLOY_ID" \
+              --query 'deploymentInfo.{status:status,error:errorInformation,code:errorInformation.code,message:errorInformation.message}' \
+              --output json
+            echo "--- Per-instance events ---"
+            for INSTANCE in $(aws deploy list-deployment-instances --deployment-id "$DEPLOY_ID" --query instanceIds --output text); do
+              echo "Instance: $INSTANCE"
+              aws deploy get-deployment-instance \
+                --deployment-id "$DEPLOY_ID" \
+                --instance-id "$INSTANCE" \
+                --query 'instanceSummary.{status:status,lifecycle:lifecycleEvents[*].{name:lifecycleEventName,status:status,diagnostics:diagnostics.logTail}}' \
+                --output json || true
+            done
+            exit 1
+          fi

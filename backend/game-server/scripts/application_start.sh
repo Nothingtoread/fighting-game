@@ -4,19 +4,23 @@
 set -euo pipefail
 
 APP_DIR="/home/ubuntu/fighting-game-server"
+BUNDLED_ENV="$APP_DIR/fighting-game.env"
 ENV_FILE="/etc/fighting-game.env"
 
 cd "$APP_DIR"
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
+set -a
+if [[ -f "$BUNDLED_ENV" ]]; then
+  # shellcheck disable=SC1090
+  source "$BUNDLED_ENV"
+elif [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
-  set +a
 fi
+set +a
 
 export COGNITO_REGION="${COGNITO_REGION:-ap-southeast-1}"
-export COGNITO_USER_POOL_ID="${COGNITO_USER_POOL_ID:?COGNITO_USER_POOL_ID required — create $ENV_FILE on the instance}"
+export COGNITO_USER_POOL_ID="${COGNITO_USER_POOL_ID:?COGNITO_USER_POOL_ID required — set in fighting-game.env (CI) or $ENV_FILE on the instance}"
 export MATCHES_TABLE="${MATCHES_TABLE:-ActiveMatches}"
 export PORT="${PORT:-9000}"
 
