@@ -1,0 +1,93 @@
+# Flow C — CI/CD: client -> S3, MatchMaker Lambda, game-server -> EC2 fleet (SSM)
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  LAMBDA_FUNCTION: FightingGameMatchmaker
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── C2: Deploy MatchMaker Lambda ─────────────────────────────────
+      - name: Package MatchMaker
+        run: |
+          cp backend/lambda-matchmaker.mjs /tmp/index.mjs
+          cd /tmp && zip -q matchmaker.zip index.mjs
+
+      - name: Deploy MatchMaker Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION" \
+            --zip-file fileb:///tmp/matchmaker.zip
+          aws lambda wait function-updated --function-name "$LAMBDA_FUNCTION"
+
+      # ── C2b: Build + sync browser client to S3 (Flow A assets) ───────
+      - name: Prepare client bundle
+        env:
+          COGNITO_REGION: ${{ env.AWS_REGION }}
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          COGNITO_APP_CLIENT_ID: ${{ secrets.COGNITO_APP_CLIENT_ID }}
+          COGNITO_IDENTITY_POOL_ID: ${{ secrets.COGNITO_IDENTITY_POOL_ID }}
+          MATCHMAKER_API_BASE: ${{ secrets.MATCHMAKER_API_BASE }}
+          WS_SERVER: ${{ secrets.WS_SERVER }}
+        run: |
+          mkdir -p dist-client
+          rsync -a --exclude backend --exclude .git --exclude .github \
+            --exclude dist-client --exclude node_modules --exclude .asset-backups \
+            --exclude src/config.js ./ dist-client/
+          mkdir -p dist-client/src
+          node scripts/generate-config.js > dist-client/src/config.js
+
+      - name: Sync client to S3
+        run: |
+          aws s3 sync dist-client/ "s3://${{ secrets.ASSETS_BUCKET }}/" \
+            --delete \
+            --exclude ".git/*"
+
+      # ── C3: Package game-server and push to S3 deploy prefix ──────────
+      - name: Package game server
+        run: |
+          cd backend/game-server
+          npm ci --omit=dev
+          zip -qr /tmp/game-server.zip . -x "*.git*"
+
+      - name: Upload game-server artifact to S3
+        run: |
+          aws s3 cp /tmp/game-server.zip \
+            "s3://${{ secrets.ASSETS_BUCKET }}/deploy/game-server.zip"
+
+      # ── C4: Roll out game-server on tagged EC2 fleet (SSM) ───────────
+      - name: Deploy game-server via SSM
+        env:
+          ASSETS_BUCKET: ${{ secrets.ASSETS_BUCKET }}
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+        run: |
+          B64=$(base64 -w0 backend/game-server/install-from-s3.sh)
+          aws ssm send-command \
+            --document-name AWS-RunShellScript \
+            --targets "Key=tag:Role,Values=FightingGameServer" \
+            --parameters "commands=[
+              \"export ASSETS_BUCKET=${ASSETS_BUCKET}\",
+              \"export COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}\",
+              \"echo ${B64} | base64 -d | bash\"
+            ]" \
+            --comment "Flow C game-server deploy" \
+            --output text

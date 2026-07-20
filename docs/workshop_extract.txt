@@ -1,0 +1,304 @@
+﻿
+
+Hình  SEQ Hình \* ARABIC 1 Đổi region
+
+Hình  SEQ Hình \* ARABIC 2 Đã ở region Siongapore
+
+Hình  SEQ Hình \* ARABIC 3 Tìm kiếm Cognito
+
+Hình  SEQ Hình \* ARABIC 4 Đã ở trang Amazon Cognito
+
+Hình  SEQ Hình \* ARABIC 5 Lựa chọn “Get started for free in less than five minutes”
+
+Hình  SEQ Hình \* ARABIC 6 Đến trang “Set up resources for your application”
+
+Hình  SEQ Hình \* ARABIC 7 Chọn “Single-page application (SPA)” và đổi tên application
+
+
+
+Tích Username chọn Enable Self-registration cho phép người dùng tạo tài khoản và Required attributes for sign-up chọn email vì Cognito bắt buộc cần thêm email hoặc số điện thoại; email phù hợp hơn cho demo và khôi phục mật khẩu.
+
+Hình  SEQ Hình \* ARABIC 8 Configure options
+Xóa https:// vì chưa cần dùng đến và chọn Create user directory
+
+Hình  SEQ Hình \* ARABIC 9 
+Đã thành công tạo 1 user
+
+Hình  SEQ Hình \* ARABIC 10
+
+
+Xem thông tin User
+
+Hình  SEQ Hình \* ARABIC 11
+ID user 1: ap-southeast-1_phYoaMUPC
+Trong Applications, bấm App clients để xem Client ID (73ipqvvo7h3u0j3elfqlj23jo3)
+
+Hình  SEQ Hình \* ARABIC 12
+
+
+Chọn FightingGame để hiển thị App client: FightingGame, chọn Edit:
+
+Hình  SEQ Hình \* ARABIC 13
+Kiểm tra các lựa chọn trong App client: FightingGame, tích Sign in with username and password: ALLOW_USER_PASSWORD_AUTH
+
+Hình  SEQ Hình \* ARABIC 14
+Chọn Save changes
+
+Hình  SEQ Hình \* ARABIC 15
+
+Hình  SEQ Hình \* ARABIC 16
+Quạy lại trang Cognito và chọn Identity pools
+
+Hình  SEQ Hình \* ARABIC 17
+Chọn Create identity pool
+
+Hình  SEQ Hình \* ARABIC 18
+
+
+Tích Authenticated access, tích Amazon Cognito user pool và chọn Next
+
+Hình  SEQ Hình \* ARABIC 19
+Tại Configure permissions -&gt; Create a new IAM Role tại IAM role name điền:  FightingGameAuthenticatedRole và chọn Next
+
+Hình  SEQ Hình \* ARABIC 20
+
+
+
+
+Tại Connect identity providers nhập User pool ID và App Client ID, sau đó chọn Next
+
+Hình  SEQ Hình \* ARABIC 21
+Điền Name: FightingGameIdentityPool và chọn Next
+
+Hình  SEQ Hình \* ARABIC 22
+Kiểm tra lại lựa chọn và Create identity pool
+
+Hình  SEQ Hình \* ARABIC 23
+
+Hình  SEQ Hình \* ARABIC 24
+Identity pool ID: ap-southeast-1:a5d743b9-e4a4-45d2-9cb1-9d214cee574c
+Kiểm tra API Gateway
+
+Hình  SEQ Hình \* ARABIC 25
+Kiểm tra chưa có API
+
+Hình  SEQ Hình \* ARABIC 26
+Tìm DynamoDB
+
+Hình  SEQ Hình \* ARABIC 27
+Chọn Get started
+
+Hình  SEQ Hình \* ARABIC 28
+Tạo bảng MatchmakingQueue
+Điền các bảng:
+Table name: MatchmakingQueue
+Partition key: playerId
+Kiểu dữ liệu giữ là String
+Để trống Sort key
+Giữ Default settings
+Sau đó kéo xuống cuối trang và bấm Create table.
+
+Hình  SEQ Hình \* ARABIC 29
+Tạo bảng ActiveMatches
+Điền các bảng:
+Giữ Table name: ActiveMatches
+Partition key: playerId
+Kiểu dữ liệu: String
+Để trống Sort key
+Giữ Default settings
+Sau đó kéo xuống cuối trang và bấm Create table.
+
+Hình  SEQ Hình \* ARABIC 30
+Cả 2 bảng sau khi tạo đã Active
+
+Hình  SEQ Hình \* ARABIC 31
+Truy cập Lambda
+
+Hình  SEQ Hình \* ARABIC 32
+
+
+
+
+Chọn Create a function
+
+Hình  SEQ Hình \* ARABIC 33
+
+
+Hình  SEQ Hình \* ARABIC 34
+
+Hình  SEQ Hình \* ARABIC 35
+Trên thanh Configure -&gt; Chọn Permissions -&gt; Click vào liên kết của Role name 
+
+Hình  SEQ Hình \* ARABIC 36
+
+
+Hình  SEQ Hình \* ARABIC 37
+Chọn Add permission -&gt; Chọn Create online policy
+
+Hình  SEQ Hình \* ARABIC 38
+
+Hình  SEQ Hình \* ARABIC 39
+
+Hình  SEQ Hình \* ARABIC 40
+Điền Policy name -&gt; Create policy
+
+Hình  SEQ Hình \* ARABIC 41
+Policy đã được gắn vào Lambda
+
+Hình  SEQ Hình \* ARABIC 42
+
+Quay lại Lambda chọn Configurations -&gt; Evironment variables -&gt; Edit
+
+Hình  SEQ Hình \* ARABIC 43
+Thêm Key
+
+Hình  SEQ Hình \* ARABIC 44
+Cập nhật functions thành công
+
+Hình  SEQ Hình \* ARABIC 45
+Code -&gt; dán source code
+
+Hình  SEQ Hình \* ARABIC 46
+
+
+
+
+
+
+Test
+
+Hình  SEQ Hình \* ARABIC 47
+
+Hình  SEQ Hình \* ARABIC 48
+
+
+
+
+
+
+
+Thành công player 1
+
+Hình  SEQ Hình \* ARABIC 49
+Test player 2
+
+Hình  SEQ Hình \* ARABIC 50
+
+Hình  SEQ Hình \* ARABIC 51
+Thành công player 2
+
+Hình  SEQ Hình \* ARABIC 52
+Kiểm tra xem player 1 đã được đưa vào hàng đợi chưa
+
+Hình  SEQ Hình \* ARABIC 53
+
+Hình  SEQ Hình \* ARABIC 54
+Thành công kiểm tra player 1
+
+Hình  SEQ Hình \* ARABIC 55
+
+
+
+API Gateway
+
+Hình  SEQ Hình \* ARABIC 56
+Chọn Create an API
+
+Hình  SEQ Hình \* ARABIC 57
+
+
+
+
+
+
+
+
+Chọn Rest API
+
+Hình  SEQ Hình \* ARABIC 58
+Điền các thiết lập
+
+Hình  SEQ Hình \* ARABIC 59
+
+
+
+
+Chọn Create API
+
+Hình  SEQ Hình \* ARABIC 60
+Tạo thành công
+
+Hình  SEQ Hình \* ARABIC 61
+Chọn Create resource
+
+Hình  SEQ Hình \* ARABIC 62
+Resource name: join
+
+Hình  SEQ Hình \* ARABIC 63
+Tạo resource /join
+
+Hình  SEQ Hình \* ARABIC 64
+
+Hình  SEQ Hình \* ARABIC 65
+Điền
+
+Hình  SEQ Hình \* ARABIC 66
+
+Hình  SEQ Hình \* ARABIC 67
+Tạo method thành công
+
+Hình  SEQ Hình \* ARABIC 68
+
+Tạo tiếp resource
+
+Hình  SEQ Hình \* ARABIC 69
+Tương tự như các bước trên nhưng chọn GET
+
+Hình  SEQ Hình \* ARABIC 70
+
+Hình  SEQ Hình \* ARABIC 71
+Tạo thành công
+
+Hình  SEQ Hình \* ARABIC 72
+
+Chọn Authorizers trên thanh điều hướng của API Gateway -&gt; Create an authorizers
+
+Hình  SEQ Hình \* ARABIC 73
+Đặt tên -&gt; chọn Cognito -&gt; Điền Cognito userpool -&gt; Token source -&gt; Create authorizer
+
+Hình  SEQ Hình \* ARABIC 74
+Tạo thành công
+
+Hình  SEQ Hình \* ARABIC 75
+Qauay trở lại resource -&gt; chọn POST -&gt; Edit
+
+Hình  SEQ Hình \* ARABIC 76
+Trong Authorization -&gt; chọn FightinggameCognitoAuthorizer -&gt; Save
+
+Hình  SEQ Hình \* ARABIC 77
+
+Tạo thành công
+
+Hình  SEQ Hình \* ARABIC 78
+Tương tự như vậy thiết lập method cho /check -&gt; GET
+
+Hình  SEQ Hình \* ARABIC 79
+Tại /join chọn Enable CORS
+
+Hình  SEQ Hình \* ARABIC 80
+Tại Enable CORS, tích Default 4xx, 5xx và POST
+
+Hình  SEQ Hình \* ARABIC 81
+Thực hiện tương tự bên /check
+
+Hình  SEQ Hình \* ARABIC 82
+
+Chọn save
+
+Hình  SEQ Hình \* ARABIC 83
+Thành công
+
+Hình  SEQ Hình \* ARABIC 84
+Quay trở lại dòng gốc / của cây Resource -&gt; Deploy
+
+

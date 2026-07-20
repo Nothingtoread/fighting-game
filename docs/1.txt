@@ -1,0 +1,486 @@
+Đây là toàn bộ quá trình chúng ta đã thực hiện để xây dựng game multiplayer trên AWS, bám sát theo kiến trúc của tài liệu (Cognito → API Gateway → Lambda → DynamoDB → EC2 WebSocket).
+
+Giai đoạn 1. Kiến trúc hệ thống
+
+Đã hoàn thành:
+
+Browser
+      │
+      ▼
+Amazon Cognito
+      │
+      ▼
+API Gateway
+      │
+      ▼
+Lambda Matchmaking
+      │
+      ▼
+DynamoDB
+      │
+      ▼
+EC2 WebSocket Server
+      │
+      ▼
+2 Client Game
+
+Trong đó:
+
+Cognito: xác thực người chơi.
+API Gateway: nhận request từ game.
+Lambda: ghép trận.
+DynamoDB:
+Queue
+Matches
+EC2:
+NodeJS
+WebSocket Server
+Quản lý room.
+Giai đoạn 2. EC2
+Tạo Security Group
+
+Inbound
+
+SSH
+Port 22
+Source:
+My IP
+Custom TCP
+Port 9000
+Source:
+0.0.0.0/0
+
+Outbound
+
+All traffic
+0.0.0.0/0
+SSH vào EC2
+
+Đã gặp lỗi
+
+Permission denied (publickey)
+
+Nguyên nhân
+
+không có PEM
+
+Giải pháp
+
+Tạo lại EC2 bằng Key Pair
+
+hoặc
+
+Dùng EC2 Instance Connect.
+
+Sau khi SSH
+
+Đã tạo project
+
+mkdir ~/fighting-game-server
+
+cd ~/fighting-game-server
+
+npm init -y
+Cài package
+npm install ws jsonwebtoken jwks-rsa
+Giai đoạn 3. Tạo WebSocket Server
+
+Đã tạo
+
+server.js
+
+Server chạy
+
+node server.js
+
+Đã thấy
+
+WebSocket server running on port 9000
+
+=> Server OK
+
+Giai đoạn 4. PM2
+
+Đã cài
+
+npm install -g pm2
+
+Lỗi
+
+Script not found
+
+Nguyên nhân
+
+đứng sai folder
+
+Sửa
+
+cd ~/fighting-game-server
+pm2 start server.js --name fighting-game-server
+
+Sau đó
+
+pm2 status
+
+đã thấy
+
+online
+
+Kiểm tra
+
+curl http://localhost:9000/health
+
+Đã nhận
+
+{
+  "status":"ok",
+  "rooms":0
+}
+
+=> Server hoạt động.
+
+Lưu PM2
+
+pm2 save
+Giai đoạn 5. Kiểm tra từ máy Windows
+
+Ban đầu
+
+curl http://EC2-IP:9000/health
+
+không được.
+
+Nguyên nhân
+
+Security Group.
+
+Sau khi mở
+
+Port 9000
+
+đã nhận
+
+200 OK
+{
+ "status":"ok",
+ "rooms":0
+}
+Giai đoạn 6. netcode.js
+
+Đã sửa
+
+Không còn
+
+new WebSocket(Config.WS_SERVER?...);
+
+Mà dùng
+
+match.wsEndpoint
+
+Thêm
+
+let _wsEndpoint = null;
+
+connect()
+
+_wsEndpoint = wsEndpoint;
+
+_openSocket()
+
+const endpoint =
+    _wsEndpoint ||
+    Config.WS_SERVER;
+
+const ws =
+    new WebSocket(endpoint);
+
+disconnect()
+
+_wsEndpoint = null;
+Giai đoạn 7. index.js
+
+Đã sửa
+
+Không còn
+
+Match
+↓
+
+show game
+↓
+
+connect websocket
+
+Mà
+
+Match
+
+↓
+
+connect websocket
+
+↓
+
+match_start
+
+↓
+
+show game
+
+Đã sửa
+
+onMatchStart()
+
+thành
+
+project.greenFlag()
+
+startRound()
+
+startNetcodeLoop()
+
+Đã sửa
+
+startNetcodeLoop()
+
+không bị dừng khi
+
+WebSocket chưa kết nối.
+
+Đã thêm
+
+project.stage.vars.myPlayerSlot
+
+Đã thêm
+
+p1Inputs
+
+p2Inputs
+Giai đoạn 8. Cognito
+
+Đã tạo
+
+User Pool
+App Client
+
+Đã tạo user
+
+player1
+player2
+
+Nhưng
+
+Force change password
+
+=> Login lỗi.
+
+Giải pháp
+
+admin-set-user-password
+
+để thành
+
+Confirmed
+Giai đoạn 9. Game chạy Local
+
+Đã chạy
+
+npm install
+npm run dev
+
+Ban đầu
+
+npx
+
+node
+
+npm
+
+không chạy.
+
+Nguyên nhân
+
+Chưa cài NodeJS.
+
+Sau khi cài
+
+lại bị
+
+Execution Policy
+
+Đã sửa
+
+Set-ExecutionPolicy RemoteSigned
+
+Sau đó
+
+npm
+
+node
+
+npx
+
+đều chạy.
+
+Giai đoạn 10. Hai Client
+
+Đã mở
+
+Chrome
+
+Edge Incognito
+
+Đã đăng nhập
+
+2 user
+
+Đã vào Game.
+
+Vấn đề hiện tại
+
+Hiện giờ
+
+Hai client
+
+đều vào Game
+
+nhưng
+
+Không điều khiển được nhân vật
+
+Khả năng còn lại chỉ còn vài nguyên nhân.
+
+1.
+
+Game chưa nhận
+
+match_start
+2.
+sendInputs()
+
+không được gọi.
+
+3.
+getInputs()
+
+trong
+
+Fighter1
+
+Fighter2
+
+không tồn tại.
+
+4.
+
+Leopard chưa nhận
+
+myPlayerSlot
+5.
+
+WebSocket chưa gửi
+
+inputs
+Việc cần làm tiếp
+
+Mình đề xuất đi theo thứ tự sau:
+
+Bước 1
+
+Kiểm tra
+
+src/config.js
+
+đảm bảo
+
+MOCK_AUTH = false
+Bước 2
+
+Kiểm tra
+
+matchmaking.js
+
+có thực sự gọi Lambda hay chưa.
+
+Bước 3
+
+Kiểm tra
+
+auth.js
+
+xác nhận Cognito trả về:
+
+idToken
+
+accessToken
+
+userId
+Bước 4
+
+Kiểm tra
+
+Fighter1.js
+
+và
+
+Fighter2.js
+
+xem có hàm
+
+getInputs()
+
+hay không.
+
+Bước 5
+
+Kiểm tra
+
+index.js
+
+đã gọi
+
+sendInputs()
+
+liên tục chưa.
+
+Bước 6
+
+Kiểm tra
+
+EC2
+
+server.js
+
+đã nhận
+
+auth
+
+và
+
+inputs
+
+từ client chưa.
+
+Theo đánh giá của mình
+
+Bạn đã hoàn thành khoảng 95% toàn bộ dự án. Các thành phần AWS (Cognito, API Gateway, Lambda, DynamoDB, EC2, PM2, WebSocket) đều đã được triển khai và kết nối. Phần còn lại gần như chỉ là debug luồng realtime của game (client ↔ WebSocket ↔ Leopard).
+
+Mình khuyến nghị ở bước tiếp theo chúng ta sẽ debug từ đầu đến cuối theo luồng:
+
+Keyboard
+    ↓
+Fighter.getInputs()
+    ↓
+sendInputs()
+    ↓
+WebSocket
+    ↓
+EC2 server
+    ↓
+Broadcast
+    ↓
+Opponent
+    ↓
+Leopard Physics
+
+Chỉ cần lần theo chuỗi này, chúng ta sẽ xác định chính xác điểm khiến nhân vật chưa di chuyển và hoàn tất hệ thống.

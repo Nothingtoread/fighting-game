@@ -1,0 +1,131 @@
+/**
+ * Fighting Game WebSocket relay (EC2 / ASG Spot fleet).
+ * Deploy via CI: .github/workflows/deploy.yml -> S3 -> SSM on tagged instances.
+ */
+const http = require("http");
+const WebSocket = require("ws");
+const jwt = require("jsonwebtoken");
+const jwksClient = require("jwks-rsa");
+
+const REGION = process.env.COGNITO_REGION || "ap-southeast-1";
+const POOL_ID = process.env.COGNITO_USER_POOL_ID;
+const PORT = Number(process.env.PORT || 9000);
+
+if (!POOL_ID) {
+  console.error("COGNITO_USER_POOL_ID is required");
+  process.exit(1);
+}
+
+const jwks = jwksClient({
+  jwksUri: `https://cognito-idp.${REGION}.amazonaws.com/${POOL_ID}/.well-known/jwks.json`,
+  cache: true,
+  rateLimit: true,
+});
+
+const rooms = {};
+
+function countRooms() {
+  return Object.keys(rooms).filter(
+    (id) => rooms[id][1] || rooms[id][2]
+  ).length;
+}
+
+const server = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", rooms: countRooms() }));
+    return;
+  }
+  res.writeHead(404);
+  res.end("Not found");
+});
+
+const wss = new WebSocket.Server({ server });
+
+server.listen(PORT, () => {
+  console.log(`Game server listening on http://0.0.0.0:${PORT} (WS + /health)`);
+});
+
+wss.on("connection", (socket) => {
+  socket._authed = false;
+  socket._roomId = null;
+  socket._slot = null;
+
+  socket.on("message", async (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (msg.type === "auth") {
+      try {
+        await verifyToken(msg.idToken);
+        const { roomId, slot } = msg;
+        if (!rooms[roomId]) rooms[roomId] = {};
+        rooms[roomId][slot] = socket;
+        socket._authed = true;
+        socket._roomId = roomId;
+        socket._slot = slot;
+
+        if (rooms[roomId][1] && rooms[roomId][2]) {
+          [1, 2].forEach((s) => {
+            rooms[roomId][s].send(
+              JSON.stringify({ type: "match_start", yourSlot: s })
+            );
+          });
+        }
+      } catch (err) {
+        socket.close(4001, "Auth failed: " + err.message);
+      }
+      return;
+    }
+
+    if (!socket._authed) {
+      socket.close(4001, "Unauthorized");
+      return;
+    }
+
+    if (msg.type === "inputs") {
+      const opponentSlot = socket._slot === 1 ? 2 : 1;
+      const opponent = rooms[socket._roomId]?.[opponentSlot];
+      if (opponent && opponent.readyState === WebSocket.OPEN) {
+        const { l, r, j, a } = msg;
+        opponent.send(
+          JSON.stringify({ type: "opponent_inputs", l, r, j, a })
+        );
+      }
+    }
+  });
+
+  socket.on("close", () => {
+    if (!socket._roomId) return;
+    const opponentSlot = socket._slot === 1 ? 2 : 1;
+    const opponent = rooms[socket._roomId]?.[opponentSlot];
+    if (opponent && opponent.readyState === WebSocket.OPEN) {
+      opponent.send(JSON.stringify({ type: "match_end", winner: opponentSlot }));
+    }
+    delete rooms[socket._roomId]?.[socket._slot];
+  });
+});
+
+function verifyToken(token) {
+  return new Promise((resolve, reject) => {
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded) return reject(new Error("Invalid token"));
+
+    jwks.getSigningKey(decoded.header.kid, (err, key) => {
+      if (err) return reject(err);
+      jwt.verify(
+        token,
+        key.getPublicKey(),
+        { algorithms: ["RS256"] },
+        (e, payload) => {
+          if (e) reject(e);
+          else resolve(payload);
+        }
+      );
+    });
+  });
+}
