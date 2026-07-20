@@ -34,6 +34,30 @@ jobs:
           cp backend/lambda-matchmaker.mjs /tmp/index.mjs
           cd /tmp && zip -q matchmaker.zip index.mjs
 
+      - name: Resolve live alias baseline (before code update)
+        id: alias
+        run: |
+          CUR=$(aws lambda get-alias \
+            --function-name "$LAMBDA_FUNCTION" \
+            --name live \
+            --query FunctionVersion --output text)
+          if [ "$CUR" = '$LATEST' ]; then
+            echo "Alias 'live' points to \$LATEST — publishing baseline and pinning alias..."
+            CUR=$(aws lambda publish-version \
+              --function-name "$LAMBDA_FUNCTION" \
+              --query Version --output text)
+            aws lambda update-alias \
+              --function-name "$LAMBDA_FUNCTION" \
+              --name live \
+              --function-version "$CUR"
+          fi
+          if [ -z "$CUR" ] || [ "$CUR" = "None" ]; then
+            echo "Could not resolve a numeric version for alias 'live'."
+            exit 1
+          fi
+          echo "current_version=$CUR" >> "$GITHUB_OUTPUT"
+          echo "Live alias baseline version: $CUR"
+
       - name: Upload MatchMaker code to Lambda ($LATEST)
         run: |
           aws lambda update-function-code \
@@ -48,28 +72,45 @@ jobs:
             --function-name "$LAMBDA_FUNCTION" \
             --query Version --output text)
           echo "target_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Published target version: $NEW"
 
-      - name: Get current alias version
-        id: alias
+      - name: Build Lambda AppSpec and revision
         run: |
-          CUR=$(aws lambda get-alias \
-            --function-name "$LAMBDA_FUNCTION" \
-            --name live \
-            --query FunctionVersion --output text)
-          echo "current_version=$CUR" >> "$GITHUB_OUTPUT"
-
-      - name: Build Lambda AppSpec
-        run: |
-          sed -e "s/PLACEHOLDER_CURRENT/${{ steps.alias.outputs.current_version }}/" \
-              -e "s/PLACEHOLDER_TARGET/${{ steps.publish.outputs.target_version }}/" \
-            backend/codedeploy/lambda-appspec.json > /tmp/appspec.json
+          jq -n \
+            --arg current "${{ steps.alias.outputs.current_version }}" \
+            --arg target "${{ steps.publish.outputs.target_version }}" \
+            --arg name "$LAMBDA_FUNCTION" \
+            '{
+              version: 0.0,
+              Resources: [{
+                MyFunction: {
+                  Type: "AWS::Lambda::Function",
+                  Properties: {
+                    Name: $name,
+                    Alias: "live",
+                    CurrentVersion: $current,
+                    TargetVersion: $target
+                  }
+                }
+              }]
+            }' > /tmp/appspec.json
+          jq -n --arg content "$(jq -c . /tmp/appspec.json)" \
+            '{revisionType: "AppSpecContent", appSpecContent: {content: $content}}' \
+            > /tmp/revision.json
+          echo "AppSpec:" && cat /tmp/appspec.json
 
       - name: CodeDeploy Lambda traffic shift
         run: |
+          CURRENT="${{ steps.alias.outputs.current_version }}"
+          TARGET="${{ steps.publish.outputs.target_version }}"
+          if [ "$CURRENT" = "$TARGET" ]; then
+            echo "No version change ($CURRENT) — skipping CodeDeploy traffic shift."
+            exit 0
+          fi
           aws deploy create-deployment \
             --application-name FightingGameMatchmakerDeploy \
             --deployment-group-name FightingGameMatchmaker-live \
-            --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$(jq -c . /tmp/appspec.json)}}" \
+            --revision file:///tmp/revision.json \
             --description "GitHub Actions deploy ${{ github.sha }}"
 
       # ── C2b: Build + sync browser client to S3 (Flow A assets) ───────
