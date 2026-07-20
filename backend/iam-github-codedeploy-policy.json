@@ -7,7 +7,8 @@
       "Action": [
         "codedeploy:CreateDeployment",
         "codedeploy:GetDeployment",
-        "codedeploy:GetDeploymentConfig"
+        "codedeploy:GetDeploymentConfig",
+        "codedeploy:RegisterApplicationRevision"
       ],
       "Resource": [
         "arn:aws:codedeploy:ap-southeast-1:508768431157:application:FightingGameMatchmakerDeploy",
@@ -28,7 +29,8 @@
       "Action": [
         "codedeploy:CreateDeployment",
         "codedeploy:GetDeployment",
-        "codedeploy:GetDeploymentConfig"
+        "codedeploy:GetDeploymentConfig",
+        "codedeploy:RegisterApplicationRevision"
       ],
       "Resource": [
         "arn:aws:codedeploy:ap-southeast-1:508768431157:application:FightingGameServerDeploy",
