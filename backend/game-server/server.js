@@ -1,15 +1,22 @@
 /**
  * Fighting Game WebSocket relay (EC2 / ASG Spot fleet).
- * Deploy via CI: .github/workflows/deploy.yml -> S3 -> CodeDeploy (or SSM fallback).
+ * Deploy via CI: .github/workflows/deploy.yml -> S3 -> CodeDeploy.
+ * Phase 3: on disconnect, mark ActiveMatches status=finished for Flow E Streams.
  */
 const http = require("http");
 const WebSocket = require("ws");
 const jwt = require("jsonwebtoken");
 const jwksClient = require("jwks-rsa");
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const {
+  DynamoDBDocumentClient,
+  UpdateCommand,
+} = require("@aws-sdk/lib-dynamodb");
 
 const REGION = process.env.COGNITO_REGION || "ap-southeast-1";
 const POOL_ID = process.env.COGNITO_USER_POOL_ID;
 const PORT = Number(process.env.PORT || 9000);
+const MATCHES_TABLE = process.env.MATCHES_TABLE || "ActiveMatches";
 
 if (!POOL_ID) {
   console.error("COGNITO_USER_POOL_ID is required");
@@ -22,12 +29,58 @@ const jwks = jwksClient({
   rateLimit: true,
 });
 
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: REGION })
+);
+
 const rooms = {};
 
 function countRooms() {
   return Object.keys(rooms).filter(
     (id) => rooms[id][1] || rooms[id][2]
   ).length;
+}
+
+/**
+ * Write finished fields on both players' ActiveMatches rows (PK = playerId).
+ * Streams → FightingGameMatchAnalytics copies into MatchAnalytics.
+ */
+async function markMatchFinished(roomId, winnerSlot, endReason) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  const endedAt = Math.floor(Date.now() / 1000);
+  const playerIds = [room[1]?._playerId, room[2]?._playerId].filter(Boolean);
+  if (playerIds.length === 0) {
+    console.warn("markMatchFinished: no playerIds for room", roomId);
+    return;
+  }
+
+  await Promise.all(
+    playerIds.map((playerId) =>
+      ddb.send(
+        new UpdateCommand({
+          TableName: MATCHES_TABLE,
+          Key: { playerId },
+          UpdateExpression:
+            "SET #s = :finished, winner = :winner, endedAt = :endedAt, endReason = :endReason",
+          ExpressionAttributeNames: { "#s": "status" },
+          ExpressionAttributeValues: {
+            ":finished": "finished",
+            ":winner": winnerSlot,
+            ":endedAt": endedAt,
+            ":endReason": endReason,
+          },
+        })
+      )
+    )
+  );
+  console.log("Marked finished", {
+    roomId,
+    winnerSlot,
+    endReason,
+    playerIds,
+  });
 }
 
 const server = http.createServer((req, res) => {
@@ -50,6 +103,7 @@ wss.on("connection", (socket) => {
   socket._authed = false;
   socket._roomId = null;
   socket._slot = null;
+  socket._playerId = null;
 
   socket.on("message", async (raw) => {
     let msg;
@@ -61,13 +115,14 @@ wss.on("connection", (socket) => {
 
     if (msg.type === "auth") {
       try {
-        await verifyToken(msg.idToken);
+        const payload = await verifyToken(msg.idToken);
         const { roomId, slot } = msg;
         if (!rooms[roomId]) rooms[roomId] = {};
         rooms[roomId][slot] = socket;
         socket._authed = true;
         socket._roomId = roomId;
         socket._slot = slot;
+        socket._playerId = payload.sub;
 
         if (rooms[roomId][1] && rooms[roomId][2]) {
           [1, 2].forEach((s) => {
@@ -99,14 +154,25 @@ wss.on("connection", (socket) => {
     }
   });
 
-  socket.on("close", () => {
+  socket.on("close", async () => {
     if (!socket._roomId) return;
+    const roomId = socket._roomId;
     const opponentSlot = socket._slot === 1 ? 2 : 1;
-    const opponent = rooms[socket._roomId]?.[opponentSlot];
-    if (opponent && opponent.readyState === WebSocket.OPEN) {
-      opponent.send(JSON.stringify({ type: "match_end", winner: opponentSlot }));
+    const opponent = rooms[roomId]?.[opponentSlot];
+    const winnerSlot = opponent ? opponentSlot : null;
+
+    try {
+      await markMatchFinished(roomId, winnerSlot, "disconnect");
+    } catch (err) {
+      console.error("markMatchFinished failed", err);
     }
-    delete rooms[socket._roomId]?.[socket._slot];
+
+    if (opponent && opponent.readyState === WebSocket.OPEN) {
+      opponent.send(
+        JSON.stringify({ type: "match_end", winner: opponentSlot })
+      );
+    }
+    delete rooms[roomId]?.[socket._slot];
   });
 });
 

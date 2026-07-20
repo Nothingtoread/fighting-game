@@ -86,11 +86,12 @@ Browser (S3 static client) → Cognito login (JWT) → API Gateway POST /join, G
 ---
 ## Phases — NOT STARTED
 ### Phase 3 — Flow E (async post-match)
-- [ ] EC2 `server.js` writes to DynamoDB on `match_end`: `status=finished`, `winner`, `endedAt`, `endReason`
-- [ ] Fix rematch conflict: update to `finished` **before** `clearSession()` delete (or separate analytics table)
-- [ ] Enable DynamoDB Streams on `ActiveMatches`
-- [ ] Create Async Lambda → `MatchAnalytics` table or S3
-- [ ] IAM for stream read + analytics write
+- [ ] AWS Console: follow `docs/phase3-flow-e.md` (table, Streams, IAM, Lambda, trigger)
+- [x] Repo: EC2 `server.js` writes `status=finished` on disconnect (option B)
+- [x] Repo: `backend/lambda-match-analytics.mjs` + IAM JSON for Console paste
+- [ ] Rematch unchanged (`clearSession` deletes ActiveMatches; analytics kept in `MatchAnalytics`)
+- [ ] Enable DynamoDB Streams on `ActiveMatches` + Lambda trigger (Console)
+- [ ] Create `MatchAnalytics` table + Async Lambda (Console)
 ### Phase 2+ / production hardening (optional)
 - [ ] CloudFront + WAF in front of S3/API
 - [ ] `wss://` (Nginx + Certbot on game fleet)
