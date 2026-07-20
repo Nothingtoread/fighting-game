@@ -116,22 +116,39 @@ wss.on("connection", (socket) => {
     if (msg.type === "auth") {
       try {
         const payload = await verifyToken(msg.idToken);
-        const { roomId, slot } = msg;
+        const roomId = String(msg.roomId || "");
+        const slot = Number(msg.slot);
+        if (!roomId || (slot !== 1 && slot !== 2)) {
+          socket.close(4001, "Auth failed: invalid roomId/slot");
+          return;
+        }
         if (!rooms[roomId]) rooms[roomId] = {};
+        // Replace any stale socket in this slot (reconnect / refresh).
         rooms[roomId][slot] = socket;
         socket._authed = true;
         socket._roomId = roomId;
         socket._slot = slot;
         socket._playerId = payload.sub;
+        console.log("auth ok", {
+          roomId,
+          slot,
+          playerId: payload.sub,
+          filled: !!(rooms[roomId][1] && rooms[roomId][2]),
+        });
 
         if (rooms[roomId][1] && rooms[roomId][2]) {
           [1, 2].forEach((s) => {
-            rooms[roomId][s].send(
-              JSON.stringify({ type: "match_start", yourSlot: s })
-            );
+            const peer = rooms[roomId][s];
+            if (peer && peer.readyState === WebSocket.OPEN) {
+              peer.send(
+                JSON.stringify({ type: "match_start", yourSlot: s })
+              );
+            }
           });
+          console.log("match_start sent", roomId);
         }
       } catch (err) {
+        console.error("auth failed", err.message);
         socket.close(4001, "Auth failed: " + err.message);
       }
       return;

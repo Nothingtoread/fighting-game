@@ -136,7 +136,8 @@ export default class Fighter2 extends Sprite {
         this.vars.state = "attack";
         this._attackEndsAt = Date.now() + 400;
         this.broadcast("P2_Attack");
-        yield* this.startSound("Demon Attack");
+        // Fire-and-forget — yield* startSound can hang the sprite loop if the wav fails to load.
+        this.startSound("Demon Attack");
         this.tryHitOpponent();
       }
       if (this.vars.state === "attack" && Date.now() >= this._attackEndsAt) {
@@ -163,22 +164,22 @@ export default class Fighter2 extends Sprite {
       return { left: 0, right: 0, jump: 0, attack: 0 };
     }
     const slot = Number(this.stage.vars.myPlayerSlot);
-    if (slot === 0 || slot === 2) {
-      // Same keys as Player 1 — each client uses its own keyboard on separate machines.
+    // Local when slot is 2 (or unset/invalid). Remote when this client is player 1.
+    if (slot !== 1) {
       return {
         left: this.keyPressed("a") ? 1 : 0,
         right: this.keyPressed("d") ? 1 : 0,
         jump: this.keyPressed("w") ? 1 : 0,
         attack: this.keyPressed("j") ? 1 : 0,
       };
-    } else {
-      return {
-        left: this.stage.vars.p2Inputs.left || 0,
-        right: this.stage.vars.p2Inputs.right || 0,
-        jump: this.stage.vars.p2Inputs.jump || 0,
-        attack: this.stage.vars.p2Inputs.attack || 0,
-      };
     }
+    const remote = this.stage.vars.p2Inputs || {};
+    return {
+      left: remote.left || 0,
+      right: remote.right || 0,
+      jump: remote.jump || 0,
+      attack: remote.attack || 0,
+    };
   }
 
   updateCostume() {

@@ -91,6 +91,7 @@ let _onOpponentInputsCb = null;
 let _onMatchEndCb = null;
 let _reconnectAttempts = 0;
 let _reconnectTimer = null;
+let _intentionalClose = false;
 const MAX_RECONNECT = 3;
 
 // ─── Mock WebSocket shim ──────────────────────────────────────────────────────
@@ -162,16 +163,19 @@ function _attachHandlers(socket) {
   });
 
   socket.addEventListener("close", () => {
+    if (_intentionalClose) return;
     if (_reconnectAttempts < MAX_RECONNECT && _wsEndpoint) {
       _reconnectAttempts++;
       console.warn(`[netcode] WS closed. Reconnecting (${_reconnectAttempts}/${MAX_RECONNECT})...`);
       _reconnectTimer = setTimeout(() => _openSocket(), 1500 * _reconnectAttempts);
-    } else {
-      if (_reconnectAttempts >= MAX_RECONNECT) {
-        console.error("[netcode] Max reconnects reached. Connection failed.");
-        if (_onMatchEndCb) _onMatchEndCb(null);
-      }
+    } else if (_reconnectAttempts >= MAX_RECONNECT) {
+      console.error("[netcode] Max reconnects reached. Connection failed.");
+      if (_onMatchEndCb) _onMatchEndCb(null);
     }
+  });
+
+  socket.addEventListener("error", (err) => {
+    console.error("[netcode] WebSocket error", err);
   });
 }
 
@@ -221,6 +225,25 @@ export function connect(wsEndpoint, roomId, playerSlot, idToken, callbacks = {})
   _onOpponentInputsCb = callbacks.onOpponentInputs || null;
   _onMatchEndCb = callbacks.onMatchEnd || null;
   _reconnectAttempts = 0;
+  _intentionalClose = false;
+
+  console.log("[netcode] connect", {
+    wsEndpoint: _wsEndpoint,
+    roomId: _roomId,
+    playerSlot: _playerSlot,
+  });
+
+  if (!_wsEndpoint) {
+    console.error("[netcode] No wsEndpoint — cannot open WebSocket");
+    if (_onMatchEndCb) _onMatchEndCb(null);
+    return;
+  }
+
+  if (_playerSlot !== 1 && _playerSlot !== 2) {
+    console.error("[netcode] Invalid playerSlot:", playerSlot);
+    if (_onMatchEndCb) _onMatchEndCb(null);
+    return;
+  }
 
   if (Config.MOCK_AUTH) {
     _socket = new _MockSocket();
@@ -262,18 +285,23 @@ export function sendInputs(inputs) {
  * Call this on match end, logout, or fatal errors.
  */
 export function disconnect() {
+  _intentionalClose = true;
   if (_reconnectTimer) {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
+  _wsEndpoint = null;
   if (_socket) {
-    _socket.close();
+    try {
+      _socket.close();
+    } catch {
+      /* ignore */
+    }
     _socket = null;
   }
   _playerSlot = null;
   _roomId = null;
   _idToken = null;
-  _wsEndpoint = null;
 }
 
 /**

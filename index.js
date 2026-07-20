@@ -44,7 +44,7 @@ async function startRound() {
 
   for (let seconds = 3; seconds > 0; seconds--) {
     if (roundEnded) return;
-    timer.textContent = seconds;
+    timer.textContent = String(seconds);
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
@@ -387,23 +387,36 @@ playBtn.addEventListener("click", async () => {
     // ── Match found! ─────────────────────────────────────────────────
     setSearching(false);
 
+    const playerSlot = Number(match.playerSlot);
+    const wsEndpoint = match.wsEndpoint || "";
+    if (!match.roomId || (playerSlot !== 1 && playerSlot !== 2) || !wsEndpoint) {
+      throw new Error(
+        `Bad match payload: roomId=${match.roomId} slot=${match.playerSlot} ws=${wsEndpoint}`
+      );
+    }
+
     // Switch to game screen
     showScreen("screen-game");
 
     // Clear old match result overlay
     document.getElementById("round-result").classList.remove("visible");
+    document.getElementById("round-timer").textContent = "…";
 
     // Build and attach the Leopard project (same map for both players)
     project = buildProject(match.roomId);
     project.attach("#project");
 
-    const playerSlot = Number(match.playerSlot);
-
     // Set the local player slot so fighters know who to control
     project.stage.vars.myPlayerSlot = playerSlot;
 
+    console.log("[game] matched", {
+      roomId: match.roomId,
+      playerSlot,
+      wsEndpoint,
+    });
+
     // Connect WebSocket to the assigned game server
-    connect(match.wsEndpoint, match.roomId, playerSlot, session.idToken, {
+    connect(wsEndpoint, match.roomId, playerSlot, session.idToken, {
       onMatchStart(slot) {
         const yourSlot = Number(slot);
         console.log("[game] Match started! You are Player", yourSlot);
