@@ -13,6 +13,8 @@ permissions:
 env:
   AWS_REGION: ap-southeast-1
   LAMBDA_FUNCTION: FightingGameMatchmaker
+  CODEDEPLOY_LAMBDA_APP: FightingGameMatchmakerDeploy
+  CODEDEPLOY_LAMBDA_DG: FightingGameMatchmaker-live
   CODEDEPLOY_EC2_APP: FightingGameServerDeploy
   CODEDEPLOY_EC2_DG: FightingGameServer-fleet
 
@@ -100,6 +102,7 @@ jobs:
           echo "AppSpec:" && cat /tmp/appspec.json
 
       - name: CodeDeploy Lambda traffic shift
+        id: codedeploy_lambda
         run: |
           CURRENT="${{ steps.alias.outputs.current_version }}"
           TARGET="${{ steps.publish.outputs.target_version }}"
@@ -107,11 +110,23 @@ jobs:
             echo "No version change ($CURRENT) — skipping CodeDeploy traffic shift."
             exit 0
           fi
-          aws deploy create-deployment \
-            --application-name FightingGameMatchmakerDeploy \
-            --deployment-group-name FightingGameMatchmaker-live \
+          bash scripts/codedeploy-wait-idle.sh \
+            "$CODEDEPLOY_LAMBDA_APP" "$CODEDEPLOY_LAMBDA_DG" "Lambda CodeDeploy"
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_LAMBDA_APP" \
+            --deployment-group-name "$CODEDEPLOY_LAMBDA_DG" \
             --revision file:///tmp/revision.json \
-            --description "GitHub Actions deploy ${{ github.sha }}"
+            --description "GitHub Actions deploy ${{ github.sha }}" \
+            --query deploymentId \
+            --output text)
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "Lambda CodeDeploy deployment: $DEPLOY_ID"
+
+      - name: Wait for Lambda CodeDeploy
+        if: steps.codedeploy_lambda.outputs.deployment_id != ''
+        run: |
+          DEPLOY_ID="${{ steps.codedeploy_lambda.outputs.deployment_id }}"
+          aws deploy wait deployment-successful --deployment-id "$DEPLOY_ID"
 
       # ── C2b: Build + sync browser client to S3 (Flow A assets) ───────
       - name: Prepare client bundle
@@ -164,6 +179,8 @@ jobs:
       - name: CodeDeploy EC2 fleet rollout
         id: codedeploy_ec2
         run: |
+          bash scripts/codedeploy-wait-idle.sh \
+            "$CODEDEPLOY_EC2_APP" "$CODEDEPLOY_EC2_DG" "EC2 CodeDeploy"
           DEPLOY_ID=$(aws deploy create-deployment \
             --application-name "$CODEDEPLOY_EC2_APP" \
             --deployment-group-name "$CODEDEPLOY_EC2_DG" \
