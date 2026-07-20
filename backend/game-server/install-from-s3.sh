@@ -1,4 +1,5 @@
 #!/bin/bash
+# Legacy SSM deploy fallback. Prefer CodeDeploy (appspec.yml + scripts/application_*.sh).
 # Runs on EC2 via SSM. Env: ASSETS_BUCKET, COGNITO_USER_POOL_ID
 set -euo pipefail
 APP_DIR="${APP_DIR:-/home/ubuntu/fighting-game-server}"

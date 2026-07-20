@@ -1,6 +1,6 @@
 /**
  * Fighting Game WebSocket relay (EC2 / ASG Spot fleet).
- * Deploy via CI: .github/workflows/deploy.yml -> S3 -> SSM on tagged instances.
+ * Deploy via CI: .github/workflows/deploy.yml -> S3 -> CodeDeploy (or SSM fallback).
  */
 const http = require("http");
 const WebSocket = require("ws");

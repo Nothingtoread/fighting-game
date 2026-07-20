@@ -1,4 +1,4 @@
-# Flow C — CI/CD: client -> S3, MatchMaker Lambda, game-server -> EC2 fleet (SSM)
+# Flow C — CI/CD: client -> S3, MatchMaker Lambda (CodeDeploy alias), game-server -> EC2 fleet (CodeDeploy)
 name: Deploy
 
 on:
@@ -13,6 +13,8 @@ permissions:
 env:
   AWS_REGION: ap-southeast-1
   LAMBDA_FUNCTION: FightingGameMatchmaker
+  CODEDEPLOY_EC2_APP: FightingGameServerDeploy
+  CODEDEPLOY_EC2_DG: FightingGameServer-fleet
 
 jobs:
   deploy:
@@ -26,18 +28,49 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ── C2: Deploy MatchMaker Lambda ─────────────────────────────────
+      # ── C2: Deploy MatchMaker Lambda (CodeDeploy alias traffic shift) ─
       - name: Package MatchMaker
         run: |
           cp backend/lambda-matchmaker.mjs /tmp/index.mjs
           cd /tmp && zip -q matchmaker.zip index.mjs
 
-      - name: Deploy MatchMaker Lambda
+      - name: Upload MatchMaker code to Lambda ($LATEST)
         run: |
           aws lambda update-function-code \
             --function-name "$LAMBDA_FUNCTION" \
             --zip-file fileb:///tmp/matchmaker.zip
           aws lambda wait function-updated --function-name "$LAMBDA_FUNCTION"
+
+      - name: Publish new Lambda version
+        id: publish
+        run: |
+          NEW=$(aws lambda publish-version \
+            --function-name "$LAMBDA_FUNCTION" \
+            --query Version --output text)
+          echo "target_version=$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Get current alias version
+        id: alias
+        run: |
+          CUR=$(aws lambda get-alias \
+            --function-name "$LAMBDA_FUNCTION" \
+            --name live \
+            --query FunctionVersion --output text)
+          echo "current_version=$CUR" >> "$GITHUB_OUTPUT"
+
+      - name: Build Lambda AppSpec
+        run: |
+          sed -e "s/PLACEHOLDER_CURRENT/${{ steps.alias.outputs.current_version }}/" \
+              -e "s/PLACEHOLDER_TARGET/${{ steps.publish.outputs.target_version }}/" \
+            backend/codedeploy/lambda-appspec.json > /tmp/appspec.json
+
+      - name: CodeDeploy Lambda traffic shift
+        run: |
+          aws deploy create-deployment \
+            --application-name FightingGameMatchmakerDeploy \
+            --deployment-group-name FightingGameMatchmaker-live \
+            --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$(jq -c . /tmp/appspec.json)}}" \
+            --description "GitHub Actions deploy ${{ github.sha }}"
 
       # ── C2b: Build + sync browser client to S3 (Flow A assets) ───────
       - name: Prepare client bundle
@@ -62,32 +95,37 @@ jobs:
             --delete \
             --exclude ".git/*"
 
-      # ── C3: Package game-server and push to S3 deploy prefix ──────────
+      # ── C3: Package game-server (appspec + hooks) for CodeDeploy ────
       - name: Package game server
         run: |
           cd backend/game-server
           npm ci --omit=dev
-          zip -qr /tmp/game-server.zip . -x "*.git*"
+          zip -qr /tmp/game-server.zip . \
+            -x "*.git*" \
+            -x "node_modules/*" \
+            -x "install-from-s3.sh"
 
-      - name: Upload game-server artifact to S3
+      - name: Upload game-server revision to S3
         run: |
           aws s3 cp /tmp/game-server.zip \
             "s3://${{ secrets.ASSETS_BUCKET }}/deploy/game-server.zip"
 
-      # ── C4: Roll out game-server on tagged EC2 fleet (SSM) ───────────
-      - name: Deploy game-server via SSM
-        env:
-          ASSETS_BUCKET: ${{ secrets.ASSETS_BUCKET }}
-          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+      # ── C4: Roll out game-server on tagged EC2 fleet (CodeDeploy) ───
+      - name: CodeDeploy EC2 fleet rollout
+        id: codedeploy_ec2
         run: |
-          B64=$(base64 -w0 backend/game-server/install-from-s3.sh)
-          aws ssm send-command \
-            --document-name AWS-RunShellScript \
-            --targets "Key=tag:Role,Values=FightingGameServer" \
-            --parameters "commands=[
-              \"export ASSETS_BUCKET=${ASSETS_BUCKET}\",
-              \"export COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}\",
-              \"echo ${B64} | base64 -d | bash\"
-            ]" \
-            --comment "Flow C game-server deploy" \
-            --output text
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name "$CODEDEPLOY_EC2_APP" \
+            --deployment-group-name "$CODEDEPLOY_EC2_DG" \
+            --s3-location "bucket=${{ secrets.ASSETS_BUCKET }},key=deploy/game-server.zip,bundleType=zip" \
+            --description "GitHub Actions game-server ${{ github.sha }}" \
+            --file-exists-behavior OVERWRITE \
+            --query deploymentId \
+            --output text)
+          echo "deployment_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "CodeDeploy EC2 deployment: $DEPLOY_ID"
+
+      - name: Wait for EC2 CodeDeploy
+        run: |
+          aws deploy wait deployment-successful \
+            --deployment-id "${{ steps.codedeploy_ec2.outputs.deployment_id }}"
